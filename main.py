@@ -229,6 +229,12 @@ class SystemMonitor(App):
         color: $text-muted;
         margin: 0 2 1 2;
     }
+    
+    #gpu-row {
+        height: auto;
+        margin: 0 1 1 1;
+        display: none;
+    }
  
     #processes-table {
         margin: 0 1 1 1;
@@ -259,7 +265,7 @@ class SystemMonitor(App):
         self._disk_rows: dict[str, DiskRow] = {}
         self._core_rows: dict[int, CoreRow] = {}
         self._timer: Timer | None = None
-        self.disk_io_prev = psutil.disk_io_counters()
+        self._disk_io_prev = psutil.disk_io_counters()
         
     # layout
     def compose(self) -> ComposeResult:
@@ -283,11 +289,10 @@ class SystemMonitor(App):
                 yield Label("↓ 0 KB/s   ↑ 0 KB/s", id="net-detail")
                 
             # gpu (mostra se disponível)
-            if gpu_available():
-                with Container(id="net-row"):
-                    yield StatCard("GPU", COLOR_GPU, id="gpu-card")
-                    yield Label("", id="gpu-detail")
-                    
+            with Container(id="gpu-row"):
+                yield StatCard("GPU", COLOR_GPU, id="gpu-card")
+                yield Label("", id="gpu-detail")
+                
             # disk
             with Container(classes="section-card", id="disk-section"):
                 yield Label(f"[{COLOR_DISK}]● Disk[/]", classes="section-title")
@@ -314,6 +319,9 @@ class SystemMonitor(App):
     def on_mount(self) -> None:
         psutil.cpu_percent(interval=None)
         psutil.cpu_percent(percpu=True)
+        if gpu_available():
+            self.query_one("#gpu-row").display = True
+              
         self._timer = self.set_interval(UPDATE_S, self._tick)
         
     # update tick
@@ -384,8 +392,8 @@ class SystemMonitor(App):
         container = self.query_one("#disk-container")
         
         io = psutil.disk_io_counters()
-        read_mb = (io.read_bytes - self.disk_io_prev.read_bytes) / 1e6
-        write_mb = (io.write_bytes - self.disk_io_prev.write_bytes) / 1e6
+        read_mb = (io.read_bytes - self._disk_io_prev.read_bytes) / 1e6
+        write_mb = (io.write_bytes - self._disk_io_prev.write_bytes) / 1e6
         self._disk_io_prev = io
         
         for p in psutil.disk_partitions(all=False):
@@ -401,7 +409,7 @@ class SystemMonitor(App):
                 container.mount(row)
                 self._disk_rows[mp] = row
             
-            self._disk_rows[mp].update(usage.used, usage.total)
+            self._disk_rows[mp].update(usage.used, usage.total, read_mb, write_mb)
             
     def _update_processes(self) -> None:
         procs = []

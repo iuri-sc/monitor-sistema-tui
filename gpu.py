@@ -26,23 +26,36 @@ class GpuInfo:
 def _try_nvidia() -> list[GpuInfo] | None:
     # tenta nvidia via gputil
     try:
-        import GPUtil
-        gpus = GPUtil.getGPUs()
-        if not gpus:
+        import pynvml
+        pynvml.nvmlInit()
+        count = pynvml.nvmlDeviceGetCount()
+        if count == 0:
             return None
         
         result = []
-        for g in gpus:
+        for i in range(count):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            name = pynvml.nvmlDeviceGetName(handle)
+            if isinstance(name, bytes):
+                name = name.decode()
+                
+            util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+            mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            try:
+                temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
+            except Exception:
+                temp = None
+                
             result.append(GpuInfo(
-                name= g.name,
-                load_pct= g.load * 100.0,
-                mem_used_mb= g.memoryUsed,
-                mem_total_mb= g.memoryTotal,
-                temp_c= g.temperature,
-                vendor= "nvidia"
+                name=name,
+                load_pct=float(util.gpu),
+                mem_used_mb=mem.used / 1024 / 1024,
+                mem_total_mb=mem.total / 1024 / 1024,
+                temp_c=float(temp) if temp is not None else None,
+                vendor="nvidia"
             ))
-    
-        return result
+        
+        return result or None
     except Exception:
         return None
     
@@ -89,7 +102,7 @@ def _try_intel_windows() -> list[GpuInfo] | None:
                 mem_total_mb= 0.0, # wmi não espõe VRAM em tempo real
                 mem_used_mb= vram_total,
                 temp_c= None,
-                vendor= "Intel"
+                vendor= "intel"
             ))
         return result or None
     except Exception:
@@ -166,7 +179,7 @@ def get_gpus() -> list[GpuInfo]:
     if _cached_vendor == "nvidia":
         return _try_nvidia() or []
     if _cached_vendor == "intel":
-        return (_try_intel_windows() or _try_intel_linux or [])
+        return (_try_intel_windows() or _try_intel_linux() or [])
     if _cached_vendor == "none":
         return []
     
