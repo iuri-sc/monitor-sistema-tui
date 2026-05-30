@@ -21,6 +21,40 @@ from rich.style import Style
 import platform
 from gpu import get_gpus, gpu_available
 
+def get_cpu_name() -> str:
+    if platform.system() == "Linux":
+        try:
+            with open("/proc/cpuinfo") as f:
+                for line in f:
+                    if "model name" in line:
+                        return line.split(":")[1].strip()
+                    
+        except Exception:
+            pass
+
+    try:
+        import subprocess
+        if platform.system() == "Windows":
+            out = subprocess.check_output(
+                "wmic cpu get name", shell=True
+            ).decode().strip().splitlines()
+            return out[1].strip() if len(out) > 1 else "Unknown CPU"
+        
+    except Exception:
+        pass
+
+    return platform.processor() or "Unknown CPU"
+
+def get_cpu_freq() -> str:
+    try:
+        freq = psutil.cpu_freq()
+        if freq is None:
+            return ""
+        
+        return f"{freq.current:.0f} MHz"
+    except Exception:
+        return ""
+
 HISTORY = 40
 UPDATE_S = 1.0
 
@@ -270,7 +304,9 @@ class SystemMonitor(App):
     # layout
     def compose(self) -> ComposeResult:
         uname = platform.uname()
-        os_text = f"{uname.system} {uname.release} · {uname.node}"
+        
+        cpu_name = get_cpu_name()
+        os_text = f"{uname.system} {uname.release} · {uname.node} · {cpu_name}"
         
         yield Header(show_clock=True)
         
@@ -336,7 +372,9 @@ class SystemMonitor(App):
         
     def _update_cpu(self) -> None:
         cpu = psutil.cpu_percent(interval=None)
-        self.query_one("#cpu-card", StatCard).update_value(cpu)
+        freq = get_cpu_freq()
+        label = f"{cpu:.1f}% {freq}" if freq else f"{cpu:.1f}%"
+        self.query_one("#cpu-card", StatCard).update_value(cpu, label_text=label)
         
     def _update_ram(self) -> None:
         mem = psutil.virtual_memory()
